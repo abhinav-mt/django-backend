@@ -36,6 +36,9 @@ INSTALLED_APPS = [
     'cloudinary',
     'rest_framework',
     'accounts',
+    'incidents',
+    'reviews',
+    'students',
 ]
 
 MIDDLEWARE = [
