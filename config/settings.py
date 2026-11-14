@@ -136,3 +136,10 @@ CLOUDINARY_STORAGE = {
 # Configure django-cloudinary-storage
 DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
 
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'accounts.authentication.TokenAuthentication',
+    ],
+}
+
+
