@@ -1,3 +1,4 @@
+from django.core.cache import cache
 from django.test import TestCase
 from django.urls import reverse
 from rest_framework import status
@@ -14,6 +15,7 @@ class StudentIncidentEndpointsTestCase(TestCase):
     """
 
     def setUp(self):
+        cache.clear()
         self.client = APIClient()
         self.url = reverse('incident-list-create')
 
@@ -261,3 +263,70 @@ class StudentIncidentEndpointsTestCase(TestCase):
         self.assertTrue(incident.is_anonymous)
         self.assertEqual(incident.reported_by, self.student)
         self.assertEqual(incident.status, 'Pending')
+
+    def tearDown(self):
+        cache.clear()
+        super().tearDown()
+
+    # -------------------------------------------------------------------------
+    # 7. Rate limiting on incident report submission (POST only)
+    # -------------------------------------------------------------------------
+    def test_student_can_post_10_reports_and_11th_returns_429(self):
+        """
+        A student can POST 10 incident reports within the rate-limit window.
+        The 11th POST request is throttled and returns HTTP 429 Too Many Requests.
+        """
+        self.client.force_authenticate(user=self.student)
+
+        for i in range(10):
+            response = self.client.post(self.url, data=self.valid_payload, format='json')
+            self.assertEqual(
+                response.status_code,
+                status.HTTP_201_CREATED,
+                f"POST #{i + 1} failed unexpectedly with status {response.status_code}"
+            )
+
+        # The 11th request must hit the rate limit
+        response_11th = self.client.post(self.url, data=self.valid_payload, format='json')
+        self.assertEqual(response_11th.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_get_incidents_still_returns_200_after_hitting_rate_limit(self):
+        """
+        Rate limiting applies strictly to POST requests (creating reports).
+        After hitting the 10-report limit, GET requests to list reports must still return 200 OK.
+        """
+        self.client.force_authenticate(user=self.student)
+
+        # Exhaust the 10-report limit
+        for _ in range(10):
+            response = self.client.post(self.url, data=self.valid_payload, format='json')
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Verify POST is throttled
+        post_response = self.client.post(self.url, data=self.valid_payload, format='json')
+        self.assertEqual(post_response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+        # GET request must not be throttled and return 200 OK
+        get_response = self.client.get(self.url)
+        self.assertEqual(get_response.status_code, status.HTTP_200_OK)
+
+    def test_second_student_not_affected_when_first_student_throttled(self):
+        """
+        Throttle is per authenticated user (not per IP).
+        When the first student is throttled, a second student is unaffected and can still POST.
+        """
+        # First student exhausts the throttle limit
+        self.client.force_authenticate(user=self.student)
+        for _ in range(10):
+            response = self.client.post(self.url, data=self.valid_payload, format='json')
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # 11th request for first student is throttled
+        response_student1 = self.client.post(self.url, data=self.valid_payload, format='json')
+        self.assertEqual(response_student1.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+        # Second student is not affected and can create a report
+        self.client.force_authenticate(user=self.other_student)
+        response_student2 = self.client.post(self.url, data=self.valid_payload, format='json')
+        self.assertEqual(response_student2.status_code, status.HTTP_201_CREATED)
+
