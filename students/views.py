@@ -3,7 +3,7 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from accounts.permissions import IsManagement
+from accounts.permissions import IsAdminOrManagement, IsManagement
 
 from .ml.embedder import get_embedding
 from .models import Student
@@ -45,3 +45,21 @@ class RegisterFaceView(APIView):
             {"student_id": student.id, "embedding_size": len(embedding)},
             status=status.HTTP_200_OK,
         )
+
+class EmbeddingListView(APIView):
+    """Admin or management downloads all registered face embeddings."""
+
+    permission_classes = [IsAdminOrManagement]
+
+    def get(self, request):
+        students = Student.objects.exclude(face_embedding=[]).order_by("id")
+        data = [
+            {
+                "id": s.id,
+                "name": s.name,
+                "register_number": s.register_number,
+                "face_embedding": s.face_embedding,
+            }
+            for s in students
+        ]
+        return Response(data, status=status.HTTP_200_OK)
