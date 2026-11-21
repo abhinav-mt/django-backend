@@ -1,4 +1,7 @@
+from unittest.mock import patch
+
 from django.core.cache import cache
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
 from rest_framework import status
@@ -329,4 +332,174 @@ class StudentIncidentEndpointsTestCase(TestCase):
         self.client.force_authenticate(user=self.other_student)
         response_student2 = self.client.post(self.url, data=self.valid_payload, format='json')
         self.assertEqual(response_student2.status_code, status.HTTP_201_CREATED)
+
+
+class IncidentMediaUploadTestCase(TestCase):
+    """
+    Test suite for student incident media upload endpoint (/api/incidents/upload/).
+    Verifies Cloudinary upload mocking, file validation, permissions, and error handling.
+    """
+
+    def setUp(self):
+        # Clear cache between tests as in the other test cases
+        cache.clear()
+        self.client = APIClient()
+        self.url = reverse('incident-media-upload')
+
+        # Test users
+        self.student = User.objects.create_user(
+            username='upload_student',
+            password='testpassword123',
+            role='student',
+        )
+        self.admin_user = User.objects.create_user(
+            username='upload_admin',
+            password='testpassword123',
+            role='admin',
+        )
+
+    def tearDown(self):
+        cache.clear()
+        super().tearDown()
+
+    def test_student_uploads_valid_jpeg(self):
+        """
+        Student uploads a small valid JPEG file -> returns 201 and
+        the returned url equals the mocked secure_url.
+        """
+        self.client.force_authenticate(user=self.student)
+        jpeg_file = SimpleUploadedFile(
+            name='photo.jpg',
+            content=b'fake jpeg image bytes',
+            content_type='image/jpeg',
+        )
+        mock_response = {
+            'secure_url': 'https://res.cloudinary.com/testcloud/image/upload/v1/guardly/incidents/photo.jpg',
+            'resource_type': 'image',
+        }
+
+        with patch('cloudinary.uploader.upload', return_value=mock_response) as mock_upload:
+            response = self.client.post(self.url, {'file': jpeg_file}, format='multipart')
+
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            self.assertEqual(response.data['url'], mock_response['secure_url'])
+            self.assertEqual(response.data['resource_type'], 'image')
+            mock_upload.assert_called_once()
+
+    def test_student_uploads_valid_mp4(self):
+        """
+        Student uploads a small MP4 video file -> returns 201 and
+        the returned url equals the mocked secure_url.
+        """
+        self.client.force_authenticate(user=self.student)
+        mp4_file = SimpleUploadedFile(
+            name='evidence.mp4',
+            content=b'fake mp4 video bytes',
+            content_type='video/mp4',
+        )
+        mock_response = {
+            'secure_url': 'https://res.cloudinary.com/testcloud/video/upload/v1/guardly/incidents/evidence.mp4',
+            'resource_type': 'video',
+        }
+
+        with patch('cloudinary.uploader.upload', return_value=mock_response) as mock_upload:
+            response = self.client.post(self.url, {'file': mp4_file}, format='multipart')
+
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            self.assertEqual(response.data['url'], mock_response['secure_url'])
+            self.assertEqual(response.data['resource_type'], 'video')
+            mock_upload.assert_called_once()
+
+    def test_unauthenticated_request_denied(self):
+        """
+        Unauthenticated request must be denied (401 or 403).
+        """
+        unauthenticated_client = APIClient()
+        jpeg_file = SimpleUploadedFile(
+            name='photo.jpg',
+            content=b'fake jpeg bytes',
+            content_type='image/jpeg',
+        )
+        response = unauthenticated_client.post(self.url, {'file': jpeg_file}, format='multipart')
+        self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
+
+    def test_admin_user_denied(self):
+        """
+        Admin user must be denied access to student upload endpoint (401 or 403).
+        """
+        self.client.force_authenticate(user=self.admin_user)
+        jpeg_file = SimpleUploadedFile(
+            name='photo.jpg',
+            content=b'fake jpeg bytes',
+            content_type='image/jpeg',
+        )
+        response = self.client.post(self.url, {'file': jpeg_file}, format='multipart')
+        self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
+
+    def test_no_file_sent(self):
+        """
+        Request with no file sent -> returns 400 Bad Request with detail message.
+        """
+        self.client.force_authenticate(user=self.student)
+        response = self.client.post(self.url, {}, format='multipart')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data.get('detail'), 'No file was sent.')
+
+    def test_disallowed_file_type(self):
+        """
+        Uploading a file with disallowed type (e.g. text/plain .txt) -> returns 400 Bad Request.
+        """
+        self.client.force_authenticate(user=self.student)
+        txt_file = SimpleUploadedFile(
+            name='document.txt',
+            content=b'plain text content',
+            content_type='text/plain',
+        )
+        response = self.client.post(self.url, {'file': txt_file}, format='multipart')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.data.get('detail'),
+            'Only photos (JPEG, PNG, WebP) and videos (MP4, MOV) are allowed.',
+        )
+
+    def test_file_too_large(self):
+        """
+        File larger than MAX_UPLOAD_BYTES -> returns 400 Bad Request.
+        Patches MAX_UPLOAD_BYTES to 10 bytes and sends a larger file.
+        """
+        self.client.force_authenticate(user=self.student)
+        large_file = SimpleUploadedFile(
+            name='photo.jpg',
+            content=b'A' * 25,
+            content_type='image/jpeg',
+        )
+        with patch('incidents.uploads.MAX_UPLOAD_BYTES', 10):
+            response = self.client.post(self.url, {'file': large_file}, format='multipart')
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(
+                response.data.get('detail'),
+                'File is too large (50 MB maximum).',
+            )
+
+    def test_cloudinary_exception_returns_502_without_leaking_exception_text(self):
+        """
+        Cloudinary raising an Exception -> returns 502 Bad Gateway,
+        and response body does not contain the raw exception text or secrets.
+        """
+        self.client.force_authenticate(user=self.student)
+        jpeg_file = SimpleUploadedFile(
+            name='photo.jpg',
+            content=b'fake jpeg image bytes',
+            content_type='image/jpeg',
+        )
+        sensitive_exception_message = 'Cloudinary secret api key error: 7knlfKlJhFLqeBnvQcLEKlAnd_k'
+
+        with patch('cloudinary.uploader.upload', side_effect=Exception(sensitive_exception_message)):
+            response = self.client.post(self.url, {'file': jpeg_file}, format='multipart')
+            self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+            self.assertEqual(response.data.get('detail'), 'Upload failed. Please try again.')
+            # Ensure the raw exception text and secrets are not leaked
+            self.assertNotIn(sensitive_exception_message, str(response.data))
+            self.assertNotIn('7knlfKlJhFLqeBnvQcLEKlAnd_k', str(response.data))
+
 
