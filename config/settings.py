@@ -79,10 +79,10 @@ AUTH_USER_MODEL = 'accounts.User'
 # Database configuration pointing to Railway Postgres via DATABASE_URL
 DATABASES = {
     'default': dj_database_url.config(
-        default=os.environ.get('DATABASE_URL'),
+        default=os.environ.get('DATABASE_URL', 'sqlite:///' + str(BASE_DIR / 'db.sqlite3')),
         conn_max_age=600,
         conn_health_checks=True,
-        ssl_require=True,
+        ssl_require=os.environ.get('DATABASE_URL', '').startswith(('postgres://', 'postgresql://')),
     )
 }
 
