@@ -1,7 +1,8 @@
 from rest_framework import generics
 from accounts.permissions import IsStudent
 from .models import Incident
-from .serializers import IncidentSerializer
+from .permissions import IsAdmin, AdminIncidentQuerysetMixin
+from .serializers import IncidentSerializer, AdminIncidentSerializer
 from .throttles import IncidentCreateThrottle
 
 
@@ -19,3 +20,21 @@ class IncidentListCreateView(generics.ListCreateAPIView):
 
     def perform_create(self, serializer):
         serializer.save(reported_by=self.request.user, status='Pending')
+
+
+class AdminIncidentListView(AdminIncidentQuerysetMixin, generics.ListAPIView):
+    """
+    Admin-only endpoint to list all campus incidents (Task 19).
+    Admins see all reports from all students, ordered newest first.
+    Students, management, and unauthenticated users are denied.
+    """
+    serializer_class = AdminIncidentSerializer
+    permission_classes = [IsAdmin]
+
+
+class AdminIncidentDetailView(AdminIncidentQuerysetMixin, generics.RetrieveAPIView):
+    """
+    Admin-only endpoint to retrieve any specific campus incident by ID (Task 19).
+    """
+    serializer_class = AdminIncidentSerializer
+    permission_classes = [IsAdmin]
