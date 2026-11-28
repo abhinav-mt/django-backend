@@ -1,34 +1,6 @@
-"""
-Role-based permission classes and queryset utilities for Incidents in Guardly.
-
-This module provides:
-- IsIncidentAdmin: Permission class restricting access exclusively to authenticated Admin users.
-- AdminIncidentQuerysetMixin: DRF view mixin supplying the full incident queryset (all incidents, newest first).
-- get_admin_incident_queryset: Standalone helper function returning the complete incident queryset for administrators.
-"""
-
 from rest_framework.exceptions import PermissionDenied
-from accounts.permissions import BaseRolePermission
+from accounts.permissions import IsAdmin
 from .models import Incident
-
-
-class IsIncidentAdmin(BaseRolePermission):
-    """
-    Permission class allowing access only to active, authenticated Administrators.
-    Used for administrative incident triage, reviewing queues, and status audits.
-    """
-    allowed_roles = {'admin'}
-    message = "Access restricted to Admin accounts."
-
-    def has_object_permission(self, request, view, obj) -> bool:
-        """
-        Administrators have full object-level access across all incidents on campus.
-        """
-        return self.has_permission(request, view)
-
-
-# Alias for concise importing
-IsAdmin = IsIncidentAdmin
 
 
 class AdminIncidentQuerysetMixin:

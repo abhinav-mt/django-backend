@@ -1,7 +1,7 @@
 from rest_framework import generics
 from accounts.permissions import IsStudent
 from .models import Incident
-from .permissions import IsIncidentAdmin, AdminIncidentQuerysetMixin
+from .permissions import IsAdmin, AdminIncidentQuerysetMixin
 from .serializers import IncidentSerializer, AdminIncidentSerializer
 from .throttles import IncidentCreateThrottle
 
@@ -29,7 +29,7 @@ class AdminIncidentListView(AdminIncidentQuerysetMixin, generics.ListAPIView):
     Students, management, and unauthenticated users are denied.
     """
     serializer_class = AdminIncidentSerializer
-    permission_classes = [IsIncidentAdmin]
+    permission_classes = [IsAdmin]
 
 
 class AdminIncidentDetailView(AdminIncidentQuerysetMixin, generics.RetrieveAPIView):
@@ -37,4 +37,4 @@ class AdminIncidentDetailView(AdminIncidentQuerysetMixin, generics.RetrieveAPIVi
     Admin-only endpoint to retrieve any specific campus incident by ID (Task 19).
     """
     serializer_class = AdminIncidentSerializer
-    permission_classes = [IsIncidentAdmin]
+    permission_classes = [IsAdmin]
