@@ -1,6 +1,7 @@
 from django.core.exceptions import ValidationError, PermissionDenied
 from django.db import models
 from django.conf import settings
+from django.utils import timezone
 
 
 class AdminReview(models.Model):
@@ -22,7 +23,9 @@ class AdminReview(models.Model):
     )
     action_taken = models.CharField(max_length=100, choices=ACTION_CHOICES)
     reason_given = models.TextField(blank=True, null=True)
-    reviewed_at = models.DateTimeField(auto_now_add=True)
+    reviewed_at = models.DateTimeField(default=timezone.now)
+    prev_hash = models.CharField(max_length=64)
+    entry_hash = models.CharField(max_length=64, unique=True, db_index=True)
 
     class Meta:
         ordering = ['-reviewed_at']
